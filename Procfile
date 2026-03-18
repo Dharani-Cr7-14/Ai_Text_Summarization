@@ -1,1 +1,1 @@
-web: gunicorn text_summarizer.wsgi:application --bind 0.0.0.0:$PORT
+web: gunicorn text_summarizer.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --timeout 180

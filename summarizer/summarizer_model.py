@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import os
 import re
 import threading
 from typing import Dict
@@ -8,12 +9,10 @@ from typing import Dict
 import pdfplumber
 import pypdfium2
 import requests
-import torch
 from bs4 import BeautifulSoup
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
 
-MODEL_NAME = "facebook/bart-large-cnn"
+MODEL_NAME = os.getenv("SUMMARIZER_MODEL_NAME", "facebook/bart-large-cnn")
 MAX_INPUT_CHARS = 150000
 MODEL_MAX_INPUT_TOKENS = 1024
 CHUNK_INPUT_TOKENS = 880
@@ -23,14 +22,31 @@ _pipeline_lock = threading.Lock()
 _tokenizer = None
 _model = None
 _device = None
+_torch = None
+
+
+def _transformers_enabled() -> bool:
+    mode = os.getenv("USE_TRANSFORMERS", "auto").strip().lower()
+    if mode in {"0", "false", "no", "off"}:
+        return False
+    if mode in {"1", "true", "yes", "on"}:
+        return True
+    return os.getenv("RENDER", "").strip() == ""
 
 
 def get_summarizer_model_components():
-    global _tokenizer, _model, _device
+    global _tokenizer, _model, _device, _torch
+
+    if not _transformers_enabled():
+        raise RuntimeError("Transformers summarizer disabled by configuration.")
 
     if _tokenizer is None or _model is None:
         with _pipeline_lock:
             if _tokenizer is None or _model is None:
+                import torch
+                from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+
+                _torch = torch
                 _tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
                 _model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME)
 
@@ -137,7 +153,10 @@ def _generate_summary_ids(text: str, tokenizer, model, device, max_new_tokens: i
     if safe_min_new_tokens >= safe_max_new_tokens:
         safe_min_new_tokens = max(5, safe_max_new_tokens - 5)
 
-    with torch.no_grad():
+    if _torch is None:
+        raise RuntimeError("Torch is not initialized.")
+
+    with _torch.no_grad():
         summary_ids = model.generate(
             **inputs,
             max_new_tokens=safe_max_new_tokens,
@@ -213,7 +232,14 @@ def summarize_text(raw_text: str, length_choice: str) -> str:
     if not text:
         raise ValueError("Text cannot be empty.")
 
-    tokenizer, model, device = get_summarizer_model_components()
+    if not _transformers_enabled():
+        return format_summary_text(lightweight_summarize_text(text, length_choice))
+
+    try:
+        tokenizer, model, device = get_summarizer_model_components()
+    except Exception:
+        return format_summary_text(lightweight_summarize_text(text, length_choice))
+
     params = get_summary_params(length_choice)
 
     token_count = _get_token_count(tokenizer, text)
@@ -246,6 +272,39 @@ def summarize_text(raw_text: str, length_choice: str) -> str:
         device=device,
     )
     return format_summary_text(bounded_summary)
+
+
+def lightweight_summarize_text(raw_text: str, length_choice: str) -> str:
+    source_text = normalize_text(raw_text)
+    sentences = split_sentences(source_text)
+    if not sentences:
+        return ""
+
+    source_word_count = len(source_text.split())
+    targets = get_length_word_targets(length_choice, source_word_count)
+    max_words = targets["max"]
+
+    selected = []
+    word_total = 0
+    for sentence in sentences:
+        words = sentence.split()
+        if not words:
+            continue
+
+        remaining = max_words - word_total
+        if remaining <= 0:
+            break
+
+        if len(words) <= remaining:
+            selected.append(sentence.strip())
+            word_total += len(words)
+        else:
+            selected.append(" ".join(words[:remaining]).strip())
+            word_total += remaining
+            break
+
+    summary = " ".join(part for part in selected if part).strip()
+    return trim_to_word_limit(summary, max_words)
 
 
 def summarize_with_points(raw_text: str, length_choice: str) -> Dict[str, object]:
