@@ -8,7 +8,14 @@ from django.views.decorators.http import require_GET, require_POST
 
 from .forms import SummarizationForm
 from .models import SummaryHistory
-from .summarizer_model import extract_text_from_pdf, extract_text_from_url, summarize_with_points
+
+# Lazy import of summarizer to prevent startup blocking on Transformers/Torch
+def _get_summarizer_functions():
+	try:
+		from .summarizer_model import extract_text_from_pdf, extract_text_from_url, summarize_with_points
+		return extract_text_from_pdf, extract_text_from_url, summarize_with_points
+	except ImportError as e:
+		raise ImportError(f"Summarizer module failed to load: {str(e)}")
 
 
 def _word_count(text: str) -> int:
@@ -39,6 +46,7 @@ def index(request):
 
 
 def _resolve_source_text(cleaned_data):
+	extract_text_from_pdf, extract_text_from_url, summarize_with_points = _get_summarizer_functions()
 	text = (cleaned_data.get("text") or "").strip()
 	url = (cleaned_data.get("url") or "").strip()
 	pdf_file = cleaned_data.get("pdf_file")
@@ -67,6 +75,7 @@ def summarize_view(request):
 		return JsonResponse({"ok": False, "error": form.errors.as_text()}, status=400)
 
 	summary_length = form.cleaned_data["summary_length"]
+	_, _, summarize_with_points = _get_summarizer_functions()
 
 	try:
 		source_type, source_text = _resolve_source_text(form.cleaned_data)
@@ -126,6 +135,8 @@ def summarize_api(request):
 		return JsonResponse({"ok": False, "error": form.errors.as_text()}, status=400)
 
 	summary_length = form.cleaned_data["summary_length"]
+	_, _, summarize_with_points = _get_summarizer_functions()
+
 	try:
 		source_type, source_text = _resolve_source_text(form.cleaned_data)
 		result = summarize_with_points(source_text, summary_length)
