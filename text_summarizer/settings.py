@@ -27,15 +27,29 @@ SECRET_KEY = os.getenv(
 
 DEBUG = os.getenv("DJANGO_DEBUG", "True").lower() == "true"
 
-# Configure ALLOWED_HOSTS more intelligently
-_default_hosts = "localhost,127.0.0.1,*.onrender.com,*.herokuapp.com" if not DEBUG else "*"
-ALLOWED_HOSTS = [host.strip() for host in os.getenv("DJANGO_ALLOWED_HOSTS", _default_hosts).split(",") if host.strip()]
+render_external_hostname = os.getenv("RENDER_EXTERNAL_HOSTNAME", "").strip()
 
-CSRF_TRUSTED_ORIGINS = [
-    "https://*.onrender.com",
-    "https://*.herokuapp.com",
-    origin.strip() for origin in os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",") if origin.strip()
-]
+default_allowed_hosts = ["localhost", "127.0.0.1"]
+if not DEBUG:
+    default_allowed_hosts.extend([".onrender.com", ".herokuapp.com"])
+if render_external_hostname:
+    default_allowed_hosts.append(render_external_hostname)
+
+allowed_hosts_env = os.getenv("DJANGO_ALLOWED_HOSTS", "").strip()
+if allowed_hosts_env:
+    ALLOWED_HOSTS = [host.strip() for host in allowed_hosts_env.split(",") if host.strip()]
+else:
+    ALLOWED_HOSTS = default_allowed_hosts
+
+default_csrf_trusted_origins = ["https://*.onrender.com", "https://*.herokuapp.com"] if not DEBUG else []
+if render_external_hostname:
+    default_csrf_trusted_origins.append(f"https://{render_external_hostname}")
+
+csrf_trusted_origins_env = os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "").strip()
+if csrf_trusted_origins_env:
+    CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in csrf_trusted_origins_env.split(",") if origin.strip()]
+else:
+    CSRF_TRUSTED_ORIGINS = default_csrf_trusted_origins
 
 
 # Application definition
