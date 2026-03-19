@@ -1,5 +1,6 @@
 import json
 
+from django.db.utils import OperationalError, ProgrammingError
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
@@ -23,7 +24,10 @@ def _compression_percentage(original_count: int, summary_count: int) -> float:
 
 @require_GET
 def index(request):
-	history_items = SummaryHistory.objects.all()[:10]
+	try:
+		history_items = SummaryHistory.objects.all()[:10]
+	except (OperationalError, ProgrammingError):
+		history_items = []
 	return render(
 		request,
 		"index.html",
