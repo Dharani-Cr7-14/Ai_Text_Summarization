@@ -27,9 +27,13 @@ SECRET_KEY = os.getenv(
 
 DEBUG = os.getenv("DJANGO_DEBUG", "True").lower() == "true"
 
-ALLOWED_HOSTS = [host.strip() for host in os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(",")]
+# Configure ALLOWED_HOSTS more intelligently
+_default_hosts = "localhost,127.0.0.1,*.onrender.com,*.herokuapp.com" if not DEBUG else "*"
+ALLOWED_HOSTS = [host.strip() for host in os.getenv("DJANGO_ALLOWED_HOSTS", _default_hosts).split(",") if host.strip()]
 
 CSRF_TRUSTED_ORIGINS = [
+    "https://*.onrender.com",
+    "https://*.herokuapp.com",
     origin.strip() for origin in os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",") if origin.strip()
 ]
 
